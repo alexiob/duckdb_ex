@@ -30,8 +30,11 @@ jobs:
               use-cross: true,
             }
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
-          - { target: x86_64-pc-windows-gnu, os: windows-latest }
-          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - {
+              target: x86_64-pc-windows-gnu,
+              os: ubuntu-22.04,
+              use-cross: true,
+            }
 
     steps:
       - name: Checkout source code
@@ -54,7 +57,8 @@ jobs:
           if [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
             echo "Cross-compilation: downloading aarch64 DuckDB library"
             DUCKDB_PLATFORM="linux-arm64"
-          elif [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+          elif [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
+            echo "Cross-compilation: downloading Windows DuckDB library"
             DUCKDB_PLATFORM="windows-amd64"
           elif [[ "${{ matrix.job.os }}" == "macos-latest" ]]; then
             DUCKDB_PLATFORM="osx-universal"
@@ -99,20 +103,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential
-          # Install cross-compilation toolchain for aarch64 if needed
-          if [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
+          # Install cross-compilation toolchains if needed
+          if [[ "${{ matrix.job.use-cross }}" == "true" ]]; then
+            if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+              sudo apt-get install -y gcc-aarch64-linux-gnu
+            elif [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
+              sudo apt-get install -y gcc-mingw-w64-x86-64
+            fi
           fi
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           # macOS should have necessary build tools
-
-      - name: Install system dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          # Windows should have MSVC or MinGW
 
       - name: Build NIF
         id: build-crate
@@ -121,24 +124,26 @@ jobs:
           export DUCKDB_LIB_DIR=$(pwd)/duckdb_sources
           export DUCKDB_INCLUDE_DIR=$(pwd)/duckdb_sources
 
-          if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
-            export DUCKDB_LIB_DIR=$(cygpath -w $(pwd)/duckdb_sources)
-            export DUCKDB_INCLUDE_DIR=$(cygpath -w $(pwd)/duckdb_sources)
-          fi
-
           # Set cross-compilation variables if needed
-          if [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            echo "Setting up cross-compilation for aarch64"
-            export CC=aarch64-linux-gnu-gcc
-            export CFLAGS="$CFLAGS -march=armv8-a"
-            echo "Cross-compiler: $CC"
+          if [[ "${{ matrix.job.use-cross }}" == "true" ]]; then
+            if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+              echo "Setting up cross-compilation for aarch64"
+              export CC=aarch64-linux-gnu-gcc
+              export CFLAGS="$CFLAGS -march=armv8-a"
+              echo "Cross-compiler: $CC"
+            elif [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
+              echo "Setting up cross-compilation for Windows"
+              export CC=x86_64-w64-mingw32-gcc
+              export CFLAGS="$CFLAGS"
+              echo "Cross-compiler: $CC"
+            fi
           fi
 
           # Build the NIF
           make
 
           # Determine file extensions
-          if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+          if [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
             SO_EXT=".dll"
             DYLIB_EXT=".dll"
           elif [[ "${{ matrix.job.os }}" == "macos-latest" ]]; then
@@ -158,14 +163,15 @@ jobs:
 
           # Copy DuckDB dynamic library only if not statically linked
           if [[ "${{ matrix.job.use-cross }}" == "true" ]]; then
-            echo "Cross-compiled NIF uses static linking - no dynamic library needed"
-          else
-            echo "Copying DuckDB dynamic library for dynamic linking"
-            if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+            if [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
+              echo "Windows cross-compiled NIF - copying Windows DLL"
               cp "duckdb_sources/duckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
             else
-              cp "duckdb_sources/libduckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
+              echo "Cross-compiled NIF uses static linking - no dynamic library needed"
             fi
+          else
+            echo "Copying DuckDB dynamic library for dynamic linking"
+            cp "duckdb_sources/libduckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
           fi
 
           # Create tarball

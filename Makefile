@@ -9,29 +9,42 @@ DUCKDB_LIB ?= duckdb
 DUCKDB_VERSION ?= v1.3.1
 
 ifneq ($(OS),Windows_NT)
-	CFLAGS += -fPIC
-
-	ifeq ($(shell uname),Darwin)
-		LDFLAGS += -dynamiclib -undefined dynamic_lookup
-		# Add both build-time and runtime library paths
-		LDFLAGS += -Wl,-rpath,$(realpath $(DUCKDB_LIB_PATH)) -Wl,-rpath,@loader_path/
-		SO_EXT = .so
-		DUCKDB_PLATFORM = osx-universal
-	else
+	# Check if we're cross-compiling for Windows with MinGW
+	ifeq ($(findstring mingw,$(CC)),mingw)
+		# Cross-compiling for Windows with MinGW
 		LDFLAGS += -shared
-		# Add both build-time and runtime library paths
-		LDFLAGS += -Wl,-rpath,$(realpath $(DUCKDB_LIB_PATH)) -Wl,-rpath,$$ORIGIN/
-		SO_EXT = .so
-		ifeq ($(shell uname -m),aarch64)
-			DUCKDB_PLATFORM = linux-arm64
+		SO_EXT = .dll
+		DUCKDB_PLATFORM = windows-amd64
+		DUCKDB_LIB = duckdb
+		CFLAGS += -fPIC
+	else
+		CFLAGS += -fPIC
+
+		ifeq ($(shell uname),Darwin)
+			LDFLAGS += -dynamiclib -undefined dynamic_lookup
+			# Add both build-time and runtime library paths
+			LDFLAGS += -Wl,-rpath,$(realpath $(DUCKDB_LIB_PATH)) -Wl,-rpath,@loader_path/
+			SO_EXT = .so
+			DUCKDB_PLATFORM = osx-universal
 		else
-			DUCKDB_PLATFORM = linux-amd64
+			LDFLAGS += -shared
+			# Add both build-time and runtime library paths
+			LDFLAGS += -Wl,-rpath,$(realpath $(DUCKDB_LIB_PATH)) -Wl,-rpath,$$ORIGIN/
+			SO_EXT = .so
+			ifeq ($(shell uname -m),aarch64)
+				DUCKDB_PLATFORM = linux-arm64
+			else
+				DUCKDB_PLATFORM = linux-amd64
+			endif
 		endif
 	endif
 else
+	# Native Windows
 	LDFLAGS += -shared
 	SO_EXT = .dll
 	DUCKDB_PLATFORM = windows-amd64
+	DUCKDB_LIB = duckdb
+	CFLAGS += -fPIC
 endif
 
 .PHONY: all clean download-duckdb force-build
@@ -89,8 +102,8 @@ ensure-duckdb:
 
 priv/duckdb_ex$(SO_EXT): c_src/duckdb_ex.c ensure-duckdb
 	@mkdir -p priv
-	@# Check if we should use static linking (for cross-compilation or if requested)
-	@if [ -n "$(DUCKDB_STATIC)" ] || ([ -n "$(CC)" ] && echo "$(CC)" | grep -q "aarch64\|arm\|cross"); then \
+	@# Check if we should use static linking (for Linux cross-compilation only)
+	@if [ -n "$(DUCKDB_STATIC)" ] || ([ -n "$(CC)" ] && echo "$(CC)" | grep -q "aarch64\|arm" && ! echo "$(CC)" | grep -q "mingw"); then \
 		echo "Using static linking for DuckDB..."; \
 		if [ -f "$(DUCKDB_LIB_PATH)/libduckdb_static.a" ]; then \
 			$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) $< $(DUCKDB_LIB_PATH)/libduckdb_static.a -o $@ $(LDFLAGS) -lpthread -ldl -lm; \
