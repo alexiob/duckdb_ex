@@ -1,5 +1,12 @@
 # DuckDB Ex
 
+[![CI](https://github.com/alexiob/duckdb_ex/actions/workflows/ci.yml/badge.svg)](https://github.com/alexiob/duckdb_ex/actions/workflows/ci.yml)
+[![Hex.pm](https://img.shields.io/hexpm/v/duckdb_ex.svg)](https://hex.pm/packages/duckdb_ex)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/duckdb_ex/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+![DuckDB_ex Logo](assets/logo.png)
+
 An Elixir NIF wrapper for DuckDB using dirty NIFs for safe concurrent access.
 
 ## Features
