@@ -8,5 +8,5 @@ erl_crash.dump
 *.beam
 /config/*.secret.exs
 .elixir_ls/
-/priv/*.so
+/priv/*
 /duckdb_sources
