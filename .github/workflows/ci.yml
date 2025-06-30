@@ -138,24 +138,7 @@ jobs:
           echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 
           echo "🧪 Testing NIF loading and basic functionality..."
-          elixir -e "
-            Mix.start()
-            Application.ensure_all_started(:duckdb_ex)
-            IO.puts('🔧 Testing DuckDB NIF...')
-            case DuckdbEx.Database.open() do
-              {:ok, db} ->
-                IO.puts('✅ DuckDB NIF loaded and database opened successfully!')
-                {:ok, conn} = DuckdbEx.Connection.open(db)
-                {:ok, result} = DuckdbEx.query(conn, 'SELECT 42 as test')
-                IO.puts('✅ Basic query executed successfully: #{inspect(result.rows)}')
-                DuckdbEx.Connection.close(conn)
-                DuckdbEx.Database.close(db)
-                IO.puts('✅ All basic operations completed successfully')
-              {:error, reason} ->
-                IO.puts('❌ Failed to open DuckDB: #{inspect(reason)}')
-                System.halt(1)
-            end
-          " || (echo "❌ DuckDB NIF test failed" && exit 1)
+          mix run -e 'IO.puts("Testing DuckDB NIF..."); {:ok, db} = DuckdbEx.open(); {:ok, conn} = DuckdbEx.connect(db); {:ok, result} = DuckdbEx.query(conn, "SELECT 42 as test"); IO.puts("Query successful: #{inspect(DuckdbEx.rows(result))}"); DuckdbEx.close_connection(conn); DuckdbEx.close_database(db); IO.puts("NIF verification complete!")'
         env:
           LD_LIBRARY_PATH: "${{ github.workspace }}/priv:${{ github.workspace }}/duckdb_sources:$LD_LIBRARY_PATH"
 
