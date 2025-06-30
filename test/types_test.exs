@@ -145,7 +145,7 @@ defmodule DuckdbEx.TypesTest do
       assert [%{name: "time_val", type: :time}] = columns
       assert [{time_val}] = rows
       assert %Time{} = time_val
-      assert time_val == ~T[14:30:45.000000]
+      assert time_val == ~T[14:30:45]
     end
 
     test "timestamp type", %{conn: conn} do

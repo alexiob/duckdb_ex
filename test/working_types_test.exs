@@ -157,7 +157,7 @@ defmodule DuckdbEx.WorkingTypesTest do
       assert get_column_types(columns) == [:time, :time, :time]
       assert [{time_val, time_microseconds, nil}] = rows
       assert %Time{} = time_val
-      assert time_val == ~T[14:30:45.000000]
+      assert time_val == ~T[14:30:45]
       assert %Time{} = time_microseconds
       assert time_microseconds == ~T[23:59:59.123456]
     end
