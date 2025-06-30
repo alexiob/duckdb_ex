@@ -1,0 +1,173 @@
+name: Build precompiled NIFs
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+  pull_request:
+    branches:
+      - main
+
+env:
+  DUCKDB_VERSION: "v1.3.1"
+
+jobs:
+  build_release:
+    name: NIF ${{ matrix.nif }} - ${{ matrix.job.target }} (${{ matrix.job.os }})
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        nif: ["2.16", "2.15"]
+        job:
+          - {
+              target: arm-unknown-linux-gnueabihf,
+              os: ubuntu-22.04,
+              use-cross: true,
+            }
+          - {
+              target: aarch64-unknown-linux-gnu,
+              os: ubuntu-22.04,
+              use-cross: true,
+            }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - {
+              target: riscv64gc-unknown-linux-gnu,
+              os: ubuntu-22.04,
+              use-cross: true,
+            }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: x86_64-pc-windows-gnu, os: windows-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Extract project version
+        shell: bash
+        run: |
+          # Get the project version from mix.exs
+          echo "PROJECT_VERSION=$(sed -n 's/^      version: "\(.*\)",$/\1/p' mix.exs | head -n1)" >> $GITHUB_ENV
+
+      - name: Download and setup DuckDB
+        shell: bash
+        run: |
+          mkdir -p duckdb_sources
+          cd duckdb_sources
+
+          # Download DuckDB release
+          if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+            if [[ "${{ matrix.job.target }}" == *"msvc"* ]]; then
+              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-windows-amd64.zip"
+            else
+              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-windows-amd64.zip"
+            fi
+            unzip duckdb.zip
+            ls -la
+          elif [[ "${{ matrix.job.os }}" == "macos-latest" ]]; then
+            if [[ "${{ matrix.job.target }}" == "aarch64-apple-darwin" ]]; then
+              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip"
+            else
+              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip"
+            fi
+            unzip duckdb.zip
+            ls -la
+          else
+            # Linux
+            if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-aarch64.zip"
+            elif [[ "${{ matrix.job.target }}" == "arm-unknown-linux-gnueabihf" ]]; then
+              # Use x86_64 and cross-compile
+              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip"
+            else
+              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip"
+            fi
+            unzip duckdb.zip
+            ls -la
+          fi
+
+      - name: Setup Erlang and Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: 26
+          elixir-version: 1.16
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # macOS should have necessary build tools
+
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Windows should have MSVC or MinGW
+
+      - name: Build NIF
+        id: build-crate
+        shell: bash
+        run: |
+          export DUCKDB_LIB_DIR=$(pwd)/duckdb_sources
+          export DUCKDB_INCLUDE_DIR=$(pwd)/duckdb_sources
+
+          if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+            export DUCKDB_LIB_DIR=$(cygpath -w $(pwd)/duckdb_sources)
+            export DUCKDB_INCLUDE_DIR=$(cygpath -w $(pwd)/duckdb_sources)
+          fi
+
+          # Build the NIF
+          make
+
+          # Determine file extensions
+          if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+            SO_EXT=".dll"
+            DYLIB_EXT=".dll"
+          elif [[ "${{ matrix.job.os }}" == "macos-latest" ]]; then
+            SO_EXT=".so"
+            DYLIB_EXT=".dylib"
+          else
+            SO_EXT=".so"
+            DYLIB_EXT=".so"
+          fi
+
+          # Create package directory
+          PACKAGE_NAME="duckdb_ex-nif-${{ matrix.nif }}-${{ matrix.job.target }}"
+          mkdir -p "${PACKAGE_NAME}"
+
+          # Copy NIF
+          cp "priv/duckdb_ex${SO_EXT}" "${PACKAGE_NAME}/duckdb_ex${SO_EXT}"
+
+          # Copy DuckDB dynamic library
+          if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+            cp "duckdb_sources/duckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
+          else
+            cp "duckdb_sources/libduckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
+          fi
+
+          # Create tarball
+          tar -czf "${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
+
+          echo "file-name=${PACKAGE_NAME}.tar.gz" >> $GITHUB_OUTPUT
+          echo "file-path=${PACKAGE_NAME}.tar.gz" >> $GITHUB_OUTPUT
+
+      - name: Artifact upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build-crate.outputs.file-name }}
+          path: ${{ steps.build-crate.outputs.file-path }}
+
+      - name: Publish archives and packages
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.build-crate.outputs.file-path }}
+        if: startsWith(github.ref, 'refs/tags/')
