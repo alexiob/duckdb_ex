@@ -102,26 +102,17 @@ ensure-duckdb:
 
 priv/duckdb_ex$(SO_EXT): c_src/duckdb_ex.c ensure-duckdb
 	@mkdir -p priv
-	@# Check if we should use static linking (for Linux cross-compilation only)
-	@if [ -n "$(DUCKDB_STATIC)" ] || ([ -n "$(CC)" ] && echo "$(CC)" | grep -q "aarch64\|arm" && ! echo "$(CC)" | grep -q "mingw"); then \
-		echo "Using static linking for DuckDB..."; \
-		if [ -f "$(DUCKDB_LIB_PATH)/libduckdb_static.a" ]; then \
-			$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) $< $(DUCKDB_LIB_PATH)/libduckdb_static.a -o $@ $(LDFLAGS) -lpthread -ldl -lm; \
-		else \
-			echo "Static library not found, falling back to dynamic linking"; \
-			$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS); \
-		fi; \
-	else \
-		echo "Using dynamic linking for DuckDB..."; \
-		$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS); \
-		echo "Copying DuckDB dynamic library to priv directory..."; \
-		if [ -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ]; then \
-			cp "$(DUCKDB_LIB_PATH)/libduckdb.dylib" "priv/libduckdb.dylib"; \
-		elif [ -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ]; then \
-			cp "$(DUCKDB_LIB_PATH)/libduckdb.so" "priv/libduckdb.so"; \
-		elif [ -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ]; then \
-			cp "$(DUCKDB_LIB_PATH)/duckdb.dll" "priv/libduckdb.dll"; \
-		fi; \
+	@# For now, use dynamic linking for all builds to avoid segfault issues
+	@# TODO: Re-enable static linking once cross-compilation issues are resolved
+	@echo "Using dynamic linking for DuckDB..."; \
+	$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS); \
+	echo "Copying DuckDB dynamic library to priv directory..."; \
+	if [ -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ]; then \
+		cp "$(DUCKDB_LIB_PATH)/libduckdb.dylib" "priv/libduckdb.dylib"; \
+	elif [ -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ]; then \
+		cp "$(DUCKDB_LIB_PATH)/libduckdb.so" "priv/libduckdb.so"; \
+	elif [ -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ]; then \
+		cp "$(DUCKDB_LIB_PATH)/duckdb.dll" "priv/libduckdb.dll"; \
 	fi
 
 clean:

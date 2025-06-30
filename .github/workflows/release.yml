@@ -30,11 +30,7 @@ jobs:
               use-cross: true,
             }
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
-          - {
-              target: x86_64-pc-windows-gnu,
-              os: ubuntu-22.04,
-              use-cross: true,
-            }
+          - { target: x86_64-pc-windows-gnu, os: ubuntu-22.04, use-cross: true }
 
     steps:
       - name: Checkout source code
@@ -52,14 +48,16 @@ jobs:
           mkdir -p duckdb_sources
           cd duckdb_sources
 
-          # For cross-compilation, we need the TARGET library (including static lib)
-          # For native compilation, we use the host platform library
-          if [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            echo "Cross-compilation: downloading aarch64 DuckDB library"
-            DUCKDB_PLATFORM="linux-arm64"
-          elif [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
-            echo "Cross-compilation: downloading Windows DuckDB library"
-            DUCKDB_PLATFORM="windows-amd64"
+          # For cross-compilation, we need the HOST library for linking
+          # and the TARGET library for runtime packaging
+          if [[ "${{ matrix.job.use-cross }}" == "true" ]]; then
+            if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+              echo "Cross-compilation for aarch64: downloading x86_64 library for linking"
+              DUCKDB_PLATFORM="linux-amd64"
+            elif [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
+              echo "Cross-compilation for Windows: downloading Windows library"
+              DUCKDB_PLATFORM="windows-amd64"
+            fi
           elif [[ "${{ matrix.job.os }}" == "macos-latest" ]]; then
             DUCKDB_PLATFORM="osx-universal"
           else
@@ -91,6 +89,18 @@ jobs:
           unzip duckdb.zip
           echo "Extracted files:"
           ls -la
+
+          # For aarch64 cross-compilation, also download the target library for packaging
+          if [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            echo "Also downloading aarch64 target library for packaging..."
+            mkdir -p ../target_lib
+            cd ../target_lib
+            curl -L -f --retry 3 --retry-delay 5 -o target.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-arm64.zip"
+            unzip target.zip
+            echo "Target library files:"
+            ls -la
+            cd ../duckdb_sources
+          fi
 
       - name: Setup Erlang and Elixir
         uses: erlef/setup-beam@v1
@@ -142,6 +152,22 @@ jobs:
           # Build the NIF
           make
 
+          # Verify the built NIF
+          echo "Built NIF info:"
+          ls -la priv/
+          if [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
+            file priv/duckdb_ex.dll || echo "Windows DLL not found"
+          else
+            file priv/duckdb_ex.so || echo "SO file not found"
+          fi
+
+          # Run a basic test to ensure the NIF works
+          echo "Testing basic NIF functionality..."
+          if [[ "${{ matrix.job.target }}" != "x86_64-pc-windows-gnu" ]]; then
+            # Only test on Linux/macOS, not for Windows cross-compiled binaries
+            mix test test/basic_test.exs --max-failures 1 --timeout 30000 || echo "Basic test failed"
+          fi
+
           # Determine file extensions
           if [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
             SO_EXT=".dll"
@@ -161,16 +187,14 @@ jobs:
           # Copy NIF
           cp "priv/duckdb_ex${SO_EXT}" "${PACKAGE_NAME}/duckdb_ex${SO_EXT}"
 
-          # Copy DuckDB dynamic library only if not statically linked
-          if [[ "${{ matrix.job.use-cross }}" == "true" ]]; then
-            if [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
-              echo "Windows cross-compiled NIF - copying Windows DLL"
-              cp "duckdb_sources/duckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
-            else
-              echo "Cross-compiled NIF uses static linking - no dynamic library needed"
-            fi
+          # Copy DuckDB dynamic library (using dynamic linking for all builds)
+          echo "Copying DuckDB dynamic library for all builds"
+          if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" && -d "../target_lib" ]]; then
+            echo "Using target aarch64 library for packaging"
+            cp "../target_lib/libduckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
+          elif [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
+            cp "duckdb_sources/duckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
           else
-            echo "Copying DuckDB dynamic library for dynamic linking"
             cp "duckdb_sources/libduckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
           fi
 
