@@ -80,7 +80,7 @@ download-duckdb:
 
 # Check if DuckDB is available, download if not
 ensure-duckdb:
-	@if [ ! -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ] && [ ! -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ] && [ ! -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ] && [ ! -f "$(DUCKDB_LIB_PATH)/libduckdb.a" ]; then \
+	@if [ ! -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ] && [ ! -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ] && [ ! -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ] && [ ! -f "$(DUCKDB_LIB_PATH)/libduckdb.a" ] && [ ! -f "$(DUCKDB_LIB_PATH)/libduckdb_static.a" ]; then \
 		echo "DuckDB not found, downloading..."; \
 		$(MAKE) download-duckdb; \
 		export DUCKDB_INCLUDE=./duckdb_sources; \
@@ -89,14 +89,26 @@ ensure-duckdb:
 
 priv/duckdb_ex$(SO_EXT): c_src/duckdb_ex.c ensure-duckdb
 	@mkdir -p priv
-	$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS)
-	@echo "Copying DuckDB dynamic library to priv directory..."
-	@if [ -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ]; then \
-		cp "$(DUCKDB_LIB_PATH)/libduckdb.dylib" "priv/libduckdb.dylib"; \
-	elif [ -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ]; then \
-		cp "$(DUCKDB_LIB_PATH)/libduckdb.so" "priv/libduckdb.so"; \
-	elif [ -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ]; then \
-		cp "$(DUCKDB_LIB_PATH)/duckdb.dll" "priv/libduckdb.dll"; \
+	@# Check if we should use static linking (for cross-compilation or if requested)
+	@if [ -n "$(DUCKDB_STATIC)" ] || ([ -n "$(CC)" ] && echo "$(CC)" | grep -q "aarch64\|arm\|cross"); then \
+		echo "Using static linking for DuckDB..."; \
+		if [ -f "$(DUCKDB_LIB_PATH)/libduckdb_static.a" ]; then \
+			$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) $< $(DUCKDB_LIB_PATH)/libduckdb_static.a -o $@ $(LDFLAGS) -lpthread -ldl -lm; \
+		else \
+			echo "Static library not found, falling back to dynamic linking"; \
+			$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS); \
+		fi; \
+	else \
+		echo "Using dynamic linking for DuckDB..."; \
+		$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS); \
+		echo "Copying DuckDB dynamic library to priv directory..."; \
+		if [ -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ]; then \
+			cp "$(DUCKDB_LIB_PATH)/libduckdb.dylib" "priv/libduckdb.dylib"; \
+		elif [ -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ]; then \
+			cp "$(DUCKDB_LIB_PATH)/libduckdb.so" "priv/libduckdb.so"; \
+		elif [ -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ]; then \
+			cp "$(DUCKDB_LIB_PATH)/duckdb.dll" "priv/libduckdb.dll"; \
+		fi; \
 	fi
 
 clean:
