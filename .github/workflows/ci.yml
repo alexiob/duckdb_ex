@@ -15,6 +15,14 @@ jobs:
 
     env:
       MIX_ENV: test
+      # Always force recompilation of NIFs in CI for consistency
+      ERL_COMPILER_OPTIONS: deterministic
+      # Force DuckDB NIF rebuild - critical for CI reliability
+      DUCKDB_EX_FORCE_REBUILD: "1"
+      # Enable verbose output for debugging build issues
+      VERBOSE: "1"
+      # Ensure clean NIF compilation
+      MIX_BUILD_EMBEDDED: "true"
 
     strategy:
       matrix:
@@ -32,18 +40,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake wget curl unzip
+
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ matrix.elixir }}
           otp-version: ${{ matrix.otp }}
 
-      - name: Restore deps and _build cache
+      - name: Restore deps cache
         uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
+          path: deps
           key: deps-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
             deps-${{ runner.os }}-${{ matrix.otp }}-${{ matrix.elixir }}
@@ -51,12 +62,108 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
-      - name: Remove compiled application files
-        run: mix clean
+      - name: Clean and force rebuild
+        run: |
+          echo "🧹 Cleaning all previous builds to ensure fresh NIF compilation..."
+          mix clean
+          mix deps.clean duckdb_ex --build
+          # Remove any existing compiled artifacts
+          rm -rf priv/duckdb_ex.*
+          rm -rf priv/libduckdb.*
+          # Force complete clean of DuckDB sources and compiled files
+          make clean-all
+          echo "✅ Clean completed - forcing fresh NIF build"
+        env:
+          DUCKDB_EX_FORCE_REBUILD: "1"
 
-      - name: Compile & lint dependencies
-        run: mix compile --warnings-as-errors
+      - name: Download and build DuckDB
+        run: |
+          echo "📥 Downloading DuckDB library for fresh compilation..."
+          make download-duckdb
+          echo "DuckDB files after download:"
+          ls -la duckdb_sources/
+          echo "Checking DuckDB library symbols..."
+          if [ -f "duckdb_sources/libduckdb.so" ]; then
+            nm -D duckdb_sources/libduckdb.so | grep -i duckdb_value || echo "No duckdb_value symbols found"
+            ldd duckdb_sources/libduckdb.so || echo "ldd failed"
+          fi
+          echo "Checking DuckDB header for int8 functions..."
+          if [ -f "duckdb_sources/duckdb.h" ]; then
+            grep -n "duckdb_value_int8" duckdb_sources/duckdb.h || echo "duckdb_value_int8 not found in header"
+          fi
+
+      - name: Compile dependencies
+        run: |
+          echo "🔨 Compiling dependencies with forced NIF rebuild..."
+          mix deps.compile
+          echo "✅ Dependencies compiled successfully"
+        env:
+          DUCKDB_EX_FORCE_REBUILD: "1"
+          VERBOSE: "1"
+          # Additional flags to ensure NIF is rebuilt
+          CC: "gcc"
+          CFLAGS: "-O2"
+
+      - name: Compile project & lint
+        run: |
+          echo "🔨 Compiling project with linting and forced NIF rebuild..."
+          mix compile --warnings-as-errors --force
+          echo "✅ Project compiled with linting successfully"
         if: ${{ matrix.lint }}
+        env:
+          DUCKDB_EX_FORCE_REBUILD: "1"
+          VERBOSE: "1"
+
+      - name: Compile project
+        run: |
+          echo "🔨 Compiling project with forced NIF rebuild..."
+          mix compile --force
+          echo "✅ Project compiled successfully"
+        if: ${{ !matrix.lint }}
+        env:
+          DUCKDB_EX_FORCE_REBUILD: "1"
+          VERBOSE: "1"
+
+      - name: Verify NIF compilation
+        run: |
+          echo "🔍 Verifying NIF compilation results..."
+          echo "Checking compiled NIF files..."
+          find _build -name "*.so" -exec ls -la {} \; || echo "❌ No .so files found in _build"
+          find priv -name "*" -exec ls -la {} \; || echo "❌ No files found in priv"
+          echo "Checking DuckDB library files..."
+          find duckdb_sources -name "*" -exec ls -la {} \; || echo "❌ No duckdb_sources files found"
+
+          echo "🔗 Setting up library path for runtime..."
+          export LD_LIBRARY_PATH="$(pwd)/priv:$(pwd)/duckdb_sources:$LD_LIBRARY_PATH"
+          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+
+          echo "🧪 Testing NIF loading and basic functionality..."
+          elixir -e "
+            Mix.start()
+            Application.ensure_all_started(:duckdb_ex)
+            IO.puts('🔧 Testing DuckDB NIF...')
+            case DuckdbEx.open() do
+              {:ok, db} ->
+                IO.puts('✅ DuckDB NIF loaded and opened successfully!')
+                {:ok, conn} = DuckdbEx.connect(db)
+                {:ok, result} = DuckdbEx.query(conn, 'SELECT 42 as test')
+                IO.puts('✅ Basic query executed successfully: #{inspect(result.rows)}')
+                DuckdbEx.disconnect(conn)
+                DuckdbEx.close(db)
+                IO.puts('✅ All basic operations completed successfully')
+              {:error, reason} ->
+                IO.puts('❌ Failed to open DuckDB: #{inspect(reason)}')
+                System.halt(1)
+            end
+          " || (echo "❌ DuckDB NIF test failed" && exit 1)
+        env:
+          LD_LIBRARY_PATH: "${{ github.workspace }}/priv:${{ github.workspace }}/duckdb_sources:$LD_LIBRARY_PATH"
 
       - name: Run tests
-        run: mix test --max-failures 10 --timeout 300000
+        run: |
+          echo "🧪 Running test suite with forced NIF rebuild..."
+          mix test --max-failures 10 --timeout 300000
+          echo "✅ All tests completed"
+        env:
+          LD_LIBRARY_PATH: "${{ github.workspace }}/priv:${{ github.workspace }}/duckdb_sources:$LD_LIBRARY_PATH"
+          DUCKDB_EX_FORCE_REBUILD: "1"
