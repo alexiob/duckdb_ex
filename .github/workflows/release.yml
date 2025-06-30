@@ -48,12 +48,12 @@ jobs:
           mkdir -p duckdb_sources
           cd duckdb_sources
 
-          # For cross-compilation, we need the HOST library for linking
-          # and the TARGET library for runtime packaging
+          # For cross-compilation, we need the TARGET library for static linking
+          # For native compilation, we use the host platform library
           if [[ "${{ matrix.job.use-cross }}" == "true" ]]; then
             if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-              echo "Cross-compilation for aarch64: downloading x86_64 library for linking"
-              DUCKDB_PLATFORM="linux-amd64"
+              echo "Cross-compilation for aarch64: downloading aarch64 library for static linking"
+              DUCKDB_PLATFORM="linux-arm64"
             elif [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
               echo "Cross-compilation for Windows: downloading Windows library"
               DUCKDB_PLATFORM="windows-amd64"
@@ -89,18 +89,6 @@ jobs:
           unzip duckdb.zip
           echo "Extracted files:"
           ls -la
-
-          # For aarch64 cross-compilation, also download the target library for packaging
-          if [[ "${{ matrix.job.use-cross }}" == "true" && "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            echo "Also downloading aarch64 target library for packaging..."
-            mkdir -p ../target_lib
-            cd ../target_lib
-            curl -L -f --retry 3 --retry-delay 5 -o target.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-arm64.zip"
-            unzip target.zip
-            echo "Target library files:"
-            ls -la
-            cd ../duckdb_sources
-          fi
 
       - name: Setup Erlang and Elixir
         uses: erlef/setup-beam@v1
@@ -150,6 +138,9 @@ jobs:
           fi
 
           # Build the NIF
+          echo "Building NIF with CC=$CC, CFLAGS=$CFLAGS"
+          echo "Available libraries in duckdb_sources:"
+          ls -la duckdb_sources/
           make
 
           # Verify the built NIF
@@ -187,14 +178,15 @@ jobs:
           # Copy NIF
           cp "priv/duckdb_ex${SO_EXT}" "${PACKAGE_NAME}/duckdb_ex${SO_EXT}"
 
-          # Copy DuckDB dynamic library (using dynamic linking for all builds)
-          echo "Copying DuckDB dynamic library for all builds"
-          if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" && -d "../target_lib" ]]; then
-            echo "Using target aarch64 library for packaging"
-            cp "../target_lib/libduckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
+          # Copy DuckDB dynamic library (only for dynamic linking builds)
+          echo "Checking linking type for library copying..."
+          if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            echo "aarch64 uses static linking, no need to copy dynamic library"
           elif [[ "${{ matrix.job.target }}" == "x86_64-pc-windows-gnu" ]]; then
-            cp "duckdb_sources/duckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
+            echo "Copying Windows DLL for dynamic linking"
+            cp "duckdb_sources/duckdb.dll" "${PACKAGE_NAME}/libduckdb.dll"
           else
+            echo "Copying dynamic library for native builds"
             cp "duckdb_sources/libduckdb${DYLIB_EXT}" "${PACKAGE_NAME}/libduckdb${DYLIB_EXT}"
           fi
 

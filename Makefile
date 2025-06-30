@@ -102,17 +102,31 @@ ensure-duckdb:
 
 priv/duckdb_ex$(SO_EXT): c_src/duckdb_ex.c ensure-duckdb
 	@mkdir -p priv
-	@# For now, use dynamic linking for all builds to avoid segfault issues
-	@# TODO: Re-enable static linking once cross-compilation issues are resolved
-	@echo "Using dynamic linking for DuckDB..."; \
-	$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS); \
-	echo "Copying DuckDB dynamic library to priv directory..."; \
-	if [ -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ]; then \
-		cp "$(DUCKDB_LIB_PATH)/libduckdb.dylib" "priv/libduckdb.dylib"; \
-	elif [ -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ]; then \
-		cp "$(DUCKDB_LIB_PATH)/libduckdb.so" "priv/libduckdb.so"; \
-	elif [ -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ]; then \
-		cp "$(DUCKDB_LIB_PATH)/duckdb.dll" "priv/libduckdb.dll"; \
+	@echo "CC: $(CC)"
+	@echo "DUCKDB_LIB_PATH: $(DUCKDB_LIB_PATH)"
+	@echo "Available libraries:"
+	@ls -la $(DUCKDB_LIB_PATH)/ | grep -E "(libduckdb|duckdb)" || echo "No DuckDB libraries found"
+	@# Use static linking for cross-compilation, dynamic for native builds
+	@if [ -n "$(CC)" ] && echo "$(CC)" | grep -q "aarch64\|arm" && ! echo "$(CC)" | grep -q "mingw"; then \
+		echo "Using static linking for cross-compilation..."; \
+		if [ -f "$(DUCKDB_LIB_PATH)/libduckdb_static.a" ]; then \
+			echo "Linking with static DuckDB library for aarch64..."; \
+			$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) $< $(DUCKDB_LIB_PATH)/libduckdb_static.a -o $@ $(LDFLAGS); \
+		else \
+			echo "Static library not found at $(DUCKDB_LIB_PATH)/libduckdb_static.a, cannot cross-compile"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Using dynamic linking for DuckDB..."; \
+		$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS); \
+		echo "Copying DuckDB dynamic library to priv directory..."; \
+		if [ -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ]; then \
+			cp "$(DUCKDB_LIB_PATH)/libduckdb.dylib" "priv/libduckdb.dylib"; \
+		elif [ -f "$(DUCKDB_LIB_PATH)/libduckdb.so" ]; then \
+			cp "$(DUCKDB_LIB_PATH)/libduckdb.so" "priv/libduckdb.so"; \
+		elif [ -f "$(DUCKDB_LIB_PATH)/duckdb.dll" ]; then \
+			cp "$(DUCKDB_LIB_PATH)/duckdb.dll" "priv/libduckdb.dll"; \
+		fi; \
 	fi
 
 clean:
