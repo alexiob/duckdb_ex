@@ -72,7 +72,7 @@ ensure-duckdb:
 
 priv/duckdb_ex$(SO_EXT): c_src/duckdb_ex.c ensure-duckdb
 	@mkdir -p priv
-	$(CC) $(CFLAGS) -shared -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) -l$(DUCKDB_LIB) $< -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) -I$(DUCKDB_INCLUDE) -L$(DUCKDB_LIB_PATH) $< -l$(DUCKDB_LIB) -o $@ $(LDFLAGS)
 	@echo "Copying DuckDB dynamic library to priv directory..."
 	@if [ -f "$(DUCKDB_LIB_PATH)/libduckdb.dylib" ]; then \
 		cp "$(DUCKDB_LIB_PATH)/libduckdb.dylib" "priv/libduckdb.dylib"; \
