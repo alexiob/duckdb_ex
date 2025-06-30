@@ -144,8 +144,18 @@ jobs:
 
       - name: Run tests
         run: |
-          echo "🧪 Running test suite with forced NIF rebuild..."
-          mix test --max-failures 10 --timeout 300000
+          echo "🧪 Running test suite with forced NIF rebuild and diagnostics..."
+          echo "Setting up core dump collection..."
+          ulimit -c unlimited
+          echo "Running basic functionality test first..."
+          mix test test/basic_test.exs --trace --timeout 30000 || echo "Basic test failed"
+          echo "Running individual test files to isolate segfault..."
+          for test_file in test/*.exs; do
+            echo "Running $test_file..."
+            timeout 60 mix test "$test_file" --trace --max-failures 1 || echo "Test file $test_file failed or timed out"
+          done
+          echo "If no segfault above, running full suite..."
+          mix test --max-failures 1 --timeout 300000 --trace
           echo "✅ All tests completed"
         env:
           LD_LIBRARY_PATH: "${{ github.workspace }}/priv:${{ github.workspace }}/duckdb_sources:$LD_LIBRARY_PATH"
