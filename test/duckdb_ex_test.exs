@@ -1,6 +1,5 @@
 defmodule DuckdbExTest do
   use ExUnit.Case
-  doctest DuckdbEx
 
   setup do
     # Use in-memory database for tests

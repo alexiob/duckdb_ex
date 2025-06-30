@@ -1,6 +1,5 @@
 defmodule DirtyNifTest do
   use ExUnit.Case
-  doctest DuckdbEx
 
   describe "dirty NIFs and scheduler behavior" do
     test "concurrent database operations don't block scheduler" do

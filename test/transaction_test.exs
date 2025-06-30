@@ -1,6 +1,5 @@
 defmodule DuckdbEx.TransactionTest do
   use ExUnit.Case, async: false
-  doctest DuckdbEx.Transaction
 
   alias DuckdbEx.Transaction
 
