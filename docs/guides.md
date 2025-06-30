@@ -6,7 +6,6 @@ Welcome to the comprehensive documentation for DuckdbEx, the Elixir interface to
 
 ### Getting Started
 
-- **[Overview](overview.md)** - Project introduction, features, and architecture
 - **[Getting Started](getting_started.md)** - Installation, basic usage, and quick examples
 
 ### Core APIs

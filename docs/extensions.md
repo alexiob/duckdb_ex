@@ -1,6 +1,6 @@
 # Extensions
 
-DuckDB supports a rich ecosystem of extensions that add functionality for various data formats, sources, and analytical capabilities. DuckdbEx provides access to DuckDB's extension system through SQL commands and configuration options.
+DuckDB supports a rich ecosystem of extensions that add functionality for various data formats, sources, and analytical capabilities. DuckdbEx provides access to DuckDB's extension system through dedicated functions in the `DuckdbEx.Extension` module, offering better error handling and integration compared to raw SQL commands.
 
 ## Overview
 
@@ -12,7 +12,26 @@ DuckDB extensions provide:
 - **Specialized Types**: JSON, UUID, spatial types
 - **Performance Features**: Compression, indexing, caching
 
+## DuckdbEx.Extension Module
+
+The `DuckdbEx.Extension` module provides structured functions for extension management:
+
+- **Better Error Handling**: Returns structured `{:ok, result}` or `{:error, reason}` tuples
+- **Type Safety**: Proper Elixir function interfaces with clear parameter validation
+- **Integration**: Consistent with DuckdbEx patterns and error handling
+- **Maintainability**: Easier to test and maintain compared to raw SQL strings
+
+### Core Functions
+
+- `DuckdbEx.Extension.install/2` - Install an extension
+- `DuckdbEx.Extension.load/2` - Load an extension for use
+- `DuckdbEx.Extension.list/1` - List available extensions (if supported)
+
+**Recommendation**: Always use `DuckdbEx.Extension` functions instead of raw `INSTALL` and `LOAD` SQL commands for better integration with your Elixir applications.
+
 ## Extension Management
+
+DuckdbEx provides dedicated functions for extension management through the `DuckdbEx.Extension` module, which offers better error handling and integration compared to raw SQL commands.
 
 ### Installing Extensions
 
@@ -20,7 +39,7 @@ DuckDB extensions provide:
 {:ok, db} = DuckdbEx.open()
 {:ok, conn} = DuckdbEx.connect(db)
 
-# Install popular extensions
+# Install popular extensions using DuckdbEx.Extension
 extensions_to_install = [
   "httpfs",        # HTTP and S3 file system
   "parquet",       # Parquet file format
@@ -30,7 +49,7 @@ extensions_to_install = [
 ]
 
 Enum.each(extensions_to_install, fn extension ->
-  case DuckdbEx.query(conn, "INSTALL #{extension}") do
+  case DuckdbEx.Extension.install(conn, extension) do
     {:ok, _} -> IO.puts("Successfully installed #{extension}")
     {:error, reason} -> IO.puts("Failed to install #{extension}: #{reason}")
   end
@@ -40,11 +59,11 @@ end)
 ### Loading Extensions
 
 ```elixir
-# Load extensions for use in current session
+# Load extensions for use in current session using DuckdbEx.Extension
 extensions_to_load = ["httpfs", "parquet", "json"]
 
 Enum.each(extensions_to_load, fn extension ->
-  case DuckdbEx.query(conn, "LOAD #{extension}") do
+  case DuckdbEx.Extension.load(conn, extension) do
     {:ok, _} -> IO.puts("Successfully loaded #{extension}")
     {:error, reason} -> IO.puts("Failed to load #{extension}: #{reason}")
   end
@@ -86,9 +105,9 @@ config = %{
 ### HTTP and Cloud Storage (httpfs)
 
 ```elixir
-# Load httpfs extension for external data access
-{:ok, _} = DuckdbEx.query(conn, "INSTALL httpfs")
-{:ok, _} = DuckdbEx.query(conn, "LOAD httpfs")
+# Install and load httpfs extension for external data access
+{:ok, _} = DuckdbEx.Extension.install(conn, "httpfs")
+{:ok, _} = DuckdbEx.Extension.load(conn, "httpfs")
 
 # Configure S3 credentials (if needed)
 {:ok, _} = DuckdbEx.query(conn, "SET s3_region='us-west-2'")
@@ -116,9 +135,9 @@ config = %{
 ### Parquet Support
 
 ```elixir
-# Load parquet extension
-{:ok, _} = DuckdbEx.query(conn, "INSTALL parquet")
-{:ok, _} = DuckdbEx.query(conn, "LOAD parquet")
+# Install and load parquet extension
+{:ok, _} = DuckdbEx.Extension.install(conn, "parquet")
+{:ok, _} = DuckdbEx.Extension.load(conn, "parquet")
 
 # Read Parquet files
 {:ok, result} = DuckdbEx.query(conn, """
@@ -154,9 +173,9 @@ end)
 ### JSON Processing
 
 ```elixir
-# Load json extension
-{:ok, _} = DuckdbEx.query(conn, "INSTALL json")
-{:ok, _} = DuckdbEx.query(conn, "LOAD json")
+# Install and load json extension
+{:ok, _} = DuckdbEx.Extension.install(conn, "json")
+{:ok, _} = DuckdbEx.Extension.load(conn, "json")
 
 # Create table with JSON data
 {:ok, _} = DuckdbEx.query(conn, """
@@ -208,9 +227,9 @@ end)
 ### Full-Text Search (fts)
 
 ```elixir
-# Load FTS extension
-{:ok, _} = DuckdbEx.query(conn, "INSTALL fts")
-{:ok, _} = DuckdbEx.query(conn, "LOAD fts")
+# Install and load FTS extension
+{:ok, _} = DuckdbEx.Extension.install(conn, "fts")
+{:ok, _} = DuckdbEx.Extension.load(conn, "fts")
 
 # Create table with text content
 {:ok, _} = DuckdbEx.query(conn, """
@@ -254,9 +273,9 @@ end)
 ### Spatial Analysis (spatial)
 
 ```elixir
-# Load spatial extension
-{:ok, _} = DuckdbEx.query(conn, "INSTALL spatial")
-{:ok, _} = DuckdbEx.query(conn, "LOAD spatial")
+# Install and load spatial extension
+{:ok, _} = DuckdbEx.Extension.install(conn, "spatial")
+{:ok, _} = DuckdbEx.Extension.load(conn, "spatial")
 
 # Create table with spatial data
 {:ok, _} = DuckdbEx.query(conn, """
@@ -341,38 +360,22 @@ defmodule ExtensionManager do
   end
 
   def install_extension_safely(conn, extension_name) do
-    # Check if already installed
-    {:ok, result} = DuckdbEx.query(conn, """
-      SELECT installed FROM duckdb_extensions()
-      WHERE extension_name = '#{extension_name}'
-    """)
-
-    case DuckdbEx.rows(result) do
-      [[true]] ->
-        IO.puts("Extension #{extension_name} is already installed")
+    # Use DuckdbEx.Extension for better error handling and integration
+    case DuckdbEx.Extension.install(conn, extension_name) do
+      {:ok, _} ->
+        IO.puts("Successfully installed #{extension_name}")
         :ok
-
-      [[false]] ->
-        IO.puts("Installing extension #{extension_name}...")
-        case DuckdbEx.query(conn, "INSTALL #{extension_name}") do
-          {:ok, _} ->
-            IO.puts("Successfully installed #{extension_name}")
-            :ok
-          {:error, reason} ->
-            IO.puts("Failed to install #{extension_name}: #{reason}")
-            {:error, reason}
-        end
-
-      [] ->
-        {:error, "Unknown extension: #{extension_name}"}
+      {:error, reason} ->
+        IO.puts("Failed to install #{extension_name}: #{reason}")
+        {:error, reason}
     end
   end
 
   def load_extension_safely(conn, extension_name) do
-    # Ensure it's installed first
+    # Ensure it's installed first, then load using DuckdbEx.Extension
     case install_extension_safely(conn, extension_name) do
       :ok ->
-        case DuckdbEx.query(conn, "LOAD #{extension_name}") do
+        case DuckdbEx.Extension.load(conn, extension_name) do
           {:ok, _} ->
             IO.puts("Successfully loaded #{extension_name}")
             :ok
@@ -825,13 +828,14 @@ CustomFunctions.test_custom_functions(conn)
 
 ## Best Practices
 
-1. **Load Extensions Early**: Load required extensions at database connection time
-2. **Use Auto-loading**: Configure auto-loading for development environments
-3. **Validate Availability**: Always check if extensions are available before using them
-4. **Handle Errors Gracefully**: Extension installation can fail due to network or permission issues
-5. **Version Compatibility**: Be aware that extensions may have version compatibility requirements
-6. **Security Considerations**: Some extensions (like httpfs) can access external resources
-7. **Performance Impact**: Loading extensions has minimal impact, but some features may affect query performance
+1. **Use DuckdbEx.Extension Module**: Always use `DuckdbEx.Extension.install/2` and `DuckdbEx.Extension.load/2` instead of raw SQL commands
+2. **Load Extensions Early**: Load required extensions at database connection time
+3. **Use Auto-loading**: Configure auto-loading for development environments
+4. **Validate Availability**: Always check if extensions are available before using them
+5. **Handle Errors Gracefully**: Extension installation can fail due to network or permission issues
+6. **Version Compatibility**: Be aware that extensions may have version compatibility requirements
+7. **Security Considerations**: Some extensions (like httpfs) can access external resources
+8. **Performance Impact**: Loading extensions has minimal impact, but some features may affect query performance
 
 ## Troubleshooting Extensions
 
@@ -862,9 +866,9 @@ defmodule ExtensionTroubleshooting do
   end
 
   defp test_network_connectivity(conn) do
-    case DuckdbEx.query(conn, "INSTALL httpfs") do
+    case DuckdbEx.Extension.install(conn, "httpfs") do
       {:ok, _} ->
-        case DuckdbEx.query(conn, "LOAD httpfs") do
+        case DuckdbEx.Extension.load(conn, "httpfs") do
           {:ok, _} ->
             # Test basic HTTP connectivity
             case DuckdbEx.query(conn, "SELECT 1") do

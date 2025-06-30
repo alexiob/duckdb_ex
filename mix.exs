@@ -89,7 +89,6 @@ defmodule DuckdbEx.MixProject do
       extras: [
         "README.md",
         "CHANGELOG.md",
-        "docs/overview.md",
         "docs/getting_started.md",
         "docs/query_api.md",
         "docs/chunked_api.md",
@@ -105,7 +104,6 @@ defmodule DuckdbEx.MixProject do
       ],
       groups_for_extras: [
         "Getting Started": [
-          "docs/overview.md",
           "docs/getting_started.md"
         ],
         "Core APIs": [

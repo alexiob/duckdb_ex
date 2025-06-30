@@ -1,25 +1,52 @@
 # Examples and Use Cases
 
-This guide provides real-world examples and common use cases for DuckdbEx, demonstrating how to solve practical problems with different APIs and patterns.
+This guide provides real-world examples and common use cases for DuckdbEx, demonstrating how to solve practical problems with different APIs and patterns. Each example includes detailed explanations of the techniques used and can be adapted for your specific use cases.
 
 ## Table of Contents
 
-- [Data Analysis Examples](#data-analysis-examples)
-- [ETL Operations](#etl-operations)
-- [Real-time Data Processing](#real-time-data-processing)
-- [Web Application Integration](#web-application-integration)
-- [Data Migration](#data-migration)
-- [Reporting and Analytics](#reporting-and-analytics)
-- [Testing and Development](#testing-and-development)
+- [Examples and Use Cases](#examples-and-use-cases)
+  - [Table of Contents](#table-of-contents)
+  - [Data Analysis Examples](#data-analysis-examples)
+    - [Sales Data Analysis](#sales-data-analysis)
+    - [Time Series Analysis](#time-series-analysis)
+  - [Vector Similarity Search (VSS)](#vector-similarity-search-vss)
+    - [Document Semantic Search](#document-semantic-search)
+  - [ETL Operations](#etl-operations)
+    - [CSV Data Pipeline](#csv-data-pipeline)
+    - [Database Migration](#database-migration)
+  - [Real-time Data Processing](#real-time-data-processing)
+    - [Stream Processing](#stream-processing)
+  - [Data Migration](#data-migration)
+  - [Reporting and Analytics](#reporting-and-analytics)
+  - [Web Application Integration](#web-application-integration)
+    - [Phoenix LiveView Dashboard](#phoenix-liveview-dashboard)
+  - [Testing and Development](#testing-and-development)
+    - [Test Data Generation](#test-data-generation)
+  - [Summary](#summary)
+    - [Key DuckDB Features Demonstrated](#key-duckdb-features-demonstrated)
+    - [Adaptation Guidelines](#adaptation-guidelines)
 
 ## Data Analysis Examples
 
+DuckDB excels at analytical workloads with its columnar storage, vectorized execution, and advanced SQL features. These examples demonstrate how to leverage DuckDB's analytical capabilities for business intelligence, reporting, and data exploration tasks.
+
 ### Sales Data Analysis
+
+This example shows how to build a comprehensive sales analytics system using DuckDB's advanced SQL features including window functions, CTEs (Common Table Expressions), and time-based aggregations. Perfect for e-commerce platforms, retail businesses, or any system that tracks transactions over time.
 
 ```elixir
 defmodule SalesAnalyzer do
   @moduledoc """
-  Analyze sales data using DuckDB's analytical capabilities.
+  Comprehensive sales analytics using DuckDB's advanced SQL features.
+
+  This module demonstrates:
+  - Time-based aggregations using DATE_TRUNC and EXTRACT functions
+  - Window functions for calculating moving averages and trends
+  - Common Table Expressions (CTEs) for complex analytical queries
+  - Efficient bulk data loading using the Appender API
+  - Statistical analysis for business intelligence reporting
+
+  Perfect for e-commerce platforms, retail analytics, and revenue reporting systems.
   """
 
   def setup_sales_data(conn) do
@@ -176,10 +203,14 @@ end
 
 ### Time Series Analysis
 
+This example demonstrates DuckDB's powerful time-series capabilities for IoT data analysis. It showcases statistical functions, window operations, anomaly detection using z-scores, and rolling averages - essential techniques for monitoring systems, sensor networks, and performance analytics.
+
 ```elixir
 defmodule TimeSeriesAnalyzer do
   @moduledoc """
   Analyze time series data with DuckDB's time functions.
+  This module demonstrates statistical analysis, anomaly detection,
+  and time-based aggregations commonly used in IoT and monitoring systems.
   """
 
   def setup_sensor_data(conn) do
@@ -313,14 +344,347 @@ defmodule TimeSeriesAnalyzer do
 end
 ```
 
+## Vector Similarity Search (VSS)
+
+DuckDB's VSS extension enables semantic search, recommendation systems, and AI-powered applications by storing and querying high-dimensional vector embeddings. This example shows how to build a document search system using embeddings from language models like OpenAI's text-embedding models.
+
+**Extension Management**: This example demonstrates proper extension usage with `DuckdbEx.Extension.install/2` and `DuckdbEx.Extension.load/2` functions, which provide better error handling and integration than raw SQL commands.
+
+### Document Semantic Search
+
+```elixir
+defmodule SemanticSearch do
+  @moduledoc """
+  Semantic document search using DuckDB's VSS extension.
+  This example demonstrates how to store document embeddings and perform
+  similarity searches for AI-powered search applications, recommendation
+  systems, and retrieval-augmented generation (RAG) systems.
+  """
+
+  @embedding_dimension 1536  # OpenAI text-embedding-ada-002 dimension
+
+  def setup_vector_search(conn) do
+    # Install and load the VSS extension using DuckdbEx.Extension
+    {:ok, _} = DuckdbEx.Extension.install(conn, "vss")
+    {:ok, _} = DuckdbEx.Extension.load(conn, "vss")
+
+    # Create documents table with metadata
+    {:ok, _} = DuckdbEx.query(conn, """
+      CREATE TABLE documents (
+        id INTEGER PRIMARY KEY,
+        title VARCHAR,
+        content TEXT,
+        url VARCHAR,
+        category VARCHAR,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        metadata JSON
+      )
+    """)
+
+    # Create embeddings table with vector similarity search index
+    {:ok, _} = DuckdbEx.query(conn, """
+      CREATE TABLE document_embeddings (
+        document_id INTEGER,
+        embedding FLOAT[#{@embedding_dimension}],
+        PRIMARY KEY (document_id),
+        FOREIGN KEY (document_id) REFERENCES documents(id)
+      )
+    """)
+
+    # Create HNSW index for fast similarity search
+    {:ok, _} = DuckdbEx.query(conn, """
+      CREATE INDEX embeddings_idx ON document_embeddings
+      USING HNSW (embedding)
+      WITH (metric = 'cosine')
+    """)
+
+    load_sample_documents(conn)
+  end
+
+  def add_document(conn, title, content, url, category, metadata \\ %{}) do
+    # Insert document
+    {:ok, result} = DuckdbEx.query(conn, """
+      INSERT INTO documents (title, content, url, category, metadata)
+      VALUES (?, ?, ?, ?, ?)
+      RETURNING id
+    """, [title, content, url, category, Jason.encode!(metadata)])
+
+    document_id = result.rows |> List.first() |> List.first()
+
+    # Generate embedding (in real application, call OpenAI API)
+    embedding = generate_mock_embedding(content)
+
+    # Store embedding
+    {:ok, _} = DuckdbEx.query(conn, """
+      INSERT INTO document_embeddings (document_id, embedding)
+      VALUES (?, ?)
+    """, [document_id, embedding])
+
+    {:ok, document_id}
+  end
+
+  def search_documents(conn, query, limit \\ 10, similarity_threshold \\ 0.7) do
+    # Generate query embedding (in real application, call OpenAI API)
+    query_embedding = generate_mock_embedding(query)
+
+    sql = """
+    SELECT
+      d.id,
+      d.title,
+      d.content,
+      d.url,
+      d.category,
+      d.metadata,
+      -- Calculate cosine similarity
+      array_cosine_similarity(e.embedding, ?::FLOAT[#{@embedding_dimension}]) as similarity_score
+    FROM documents d
+    JOIN document_embeddings e ON d.id = e.document_id
+    WHERE array_cosine_similarity(e.embedding, ?::FLOAT[#{@embedding_dimension}]) > ?
+    ORDER BY similarity_score DESC
+    LIMIT ?
+    """
+
+    {:ok, result} = DuckdbEx.query(conn, sql, [query_embedding, query_embedding, similarity_threshold, limit])
+
+    format_search_results(result.rows)
+  end
+
+  def find_similar_documents(conn, document_id, limit \\ 5) do
+    sql = """
+    WITH target_embedding AS (
+      SELECT embedding FROM document_embeddings WHERE document_id = ?
+    )
+    SELECT
+      d.id,
+      d.title,
+      d.content,
+      d.category,
+      array_cosine_similarity(e.embedding, t.embedding) as similarity_score
+    FROM documents d
+    JOIN document_embeddings e ON d.id = e.document_id
+    CROSS JOIN target_embedding t
+    WHERE d.id != ?  -- Exclude the target document itself
+    ORDER BY similarity_score DESC
+    LIMIT ?
+    """
+
+    {:ok, result} = DuckdbEx.query(conn, sql, [document_id, document_id, limit])
+    format_search_results(result.rows)
+  end
+
+  def search_by_category_with_semantic_boost(conn, query, category, limit \\ 10) do
+    query_embedding = generate_mock_embedding(query)
+
+    sql = """
+    SELECT
+      d.id,
+      d.title,
+      d.content,
+      d.url,
+      d.category,
+      d.metadata,
+      -- Combine semantic similarity with category matching
+      array_cosine_similarity(e.embedding, ?::FLOAT[#{@embedding_dimension}]) *
+      CASE WHEN d.category = ? THEN 1.2 ELSE 1.0 END as boosted_score,
+      array_cosine_similarity(e.embedding, ?::FLOAT[#{@embedding_dimension}]) as raw_similarity
+    FROM documents d
+    JOIN document_embeddings e ON d.id = e.document_id
+    WHERE array_cosine_similarity(e.embedding, ?::FLOAT[#{@embedding_dimension}]) > 0.5
+    ORDER BY boosted_score DESC
+    LIMIT ?
+    """
+
+    {:ok, result} = DuckdbEx.query(conn, sql, [
+      query_embedding, category, query_embedding, query_embedding, limit
+    ])
+
+    format_search_results_with_boost(result.rows)
+  end
+
+  def get_embedding_statistics(conn) do
+    {:ok, result} = DuckdbEx.query(conn, """
+      SELECT
+        COUNT(*) as total_embeddings,
+        COUNT(DISTINCT d.category) as unique_categories,
+        AVG(array_cosine_similarity(e1.embedding, e2.embedding)) as avg_pairwise_similarity
+      FROM document_embeddings e1
+      CROSS JOIN document_embeddings e2
+      JOIN documents d ON e1.document_id = d.id
+      WHERE e1.document_id < e2.document_id  -- Avoid duplicate pairs
+    """)
+
+    case result.rows do
+      [[total, categories, avg_sim]] ->
+        %{
+          total_embeddings: total,
+          unique_categories: categories,
+          average_pairwise_similarity: Float.round(avg_sim || 0.0, 4)
+        }
+      _ -> %{total_embeddings: 0, unique_categories: 0, average_pairwise_similarity: 0.0}
+    end
+  end
+
+  def cluster_documents_by_similarity(conn, num_clusters \\ 5) do
+    # Use k-means clustering on embeddings to group similar documents
+    {:ok, result} = DuckdbEx.query(conn, """
+    WITH clustered AS (
+      SELECT
+        document_id,
+        -- Simplified clustering using modulo (in practice, use proper k-means)
+        (document_id % ?) as cluster_id
+      FROM document_embeddings
+    )
+    SELECT
+      c.cluster_id,
+      COUNT(*) as document_count,
+      STRING_AGG(d.title, ', ') as sample_titles
+    FROM clustered c
+    JOIN documents d ON c.document_id = d.id
+    GROUP BY c.cluster_id
+    ORDER BY c.cluster_id
+    """, [num_clusters])
+
+    result.rows
+  end
+
+  defp load_sample_documents(conn) do
+    sample_docs = [
+      {"Machine Learning Basics", "Introduction to supervised and unsupervised learning algorithms", "/docs/ml-basics", "AI", %{difficulty: "beginner"}},
+      {"Deep Learning with Neural Networks", "Understanding backpropagation and gradient descent", "/docs/deep-learning", "AI", %{difficulty: "advanced"}},
+      {"Data Science Pipeline", "From data collection to model deployment", "/docs/data-pipeline", "Data Science", %{difficulty: "intermediate"}},
+      {"Web Development with Elixir", "Building scalable web applications with Phoenix", "/docs/elixir-web", "Programming", %{difficulty: "intermediate"}},
+      {"Database Optimization Techniques", "Indexing strategies and query optimization", "/docs/db-optimization", "Database", %{difficulty: "advanced"}},
+      {"API Design Best Practices", "RESTful API design and documentation", "/docs/api-design", "Programming", %{difficulty: "beginner"}},
+      {"Time Series Forecasting", "ARIMA models and seasonal decomposition", "/docs/time-series", "Data Science", %{difficulty: "advanced"}},
+      {"Functional Programming Concepts", "Immutability, higher-order functions, and monads", "/docs/functional-programming", "Programming", %{difficulty: "intermediate"}},
+      {"Computer Vision Applications", "Image processing and object detection", "/docs/computer-vision", "AI", %{difficulty: "advanced"}},
+      {"Microservices Architecture", "Service decomposition and communication patterns", "/docs/microservices", "Architecture", %{difficulty: "intermediate"}}
+    ]
+
+    Enum.each(sample_docs, fn {title, content, url, category, metadata} ->
+      {:ok, _} = add_document(conn, title, content, url, category, metadata)
+    end)
+  end
+
+  defp generate_mock_embedding(text) do
+    # In a real application, you would call OpenAI's embedding API:
+    # response = OpenAI.embeddings(%{model: "text-embedding-ada-002", input: text})
+    # response.data |> List.first() |> Map.get(:embedding)
+
+    # For this example, generate a mock embedding based on text content
+    :crypto.hash(:sha256, text)
+    |> :binary.bin_to_list()
+    |> Enum.take(@embedding_dimension)
+    |> Enum.map(fn byte -> (byte - 128) / 128.0 end)  # Normalize to [-1, 1]
+  end
+
+  defp format_search_results(rows) do
+    Enum.map(rows, fn row ->
+      case row do
+        [id, title, content, url, category, metadata, similarity] ->
+          %{
+            id: id,
+            title: title,
+            content: String.slice(content, 0, 200) <> "...",
+            url: url,
+            category: category,
+            metadata: Jason.decode!(metadata || "{}"),
+            similarity_score: Float.round(similarity, 4)
+          }
+        [id, title, content, category, similarity] ->
+          %{
+            id: id,
+            title: title,
+            content: String.slice(content, 0, 200) <> "...",
+            category: category,
+            similarity_score: Float.round(similarity, 4)
+          }
+      end
+    end)
+  end
+
+  defp format_search_results_with_boost(rows) do
+    Enum.map(rows, fn [id, title, content, url, category, metadata, boosted_score, raw_similarity] ->
+      %{
+        id: id,
+        title: title,
+        content: String.slice(content, 0, 200) <> "...",
+        url: url,
+        category: category,
+        metadata: Jason.decode!(metadata || "{}"),
+        boosted_score: Float.round(boosted_score, 4),
+        raw_similarity: Float.round(raw_similarity, 4)
+      }
+    end)
+  end
+end
+
+# Usage Example
+defmodule SemanticSearchExample do
+  def run_example do
+    {:ok, conn} = DuckdbEx.open(":memory:")
+
+    try do
+      # Setup vector search
+      SemanticSearch.setup_vector_search(conn)
+
+      # Search for AI-related documents
+      ai_docs = SemanticSearch.search_documents(conn, "artificial intelligence machine learning", 5)
+      IO.puts("AI-related documents:")
+      Enum.each(ai_docs, fn doc ->
+        IO.puts("  #{doc.title} (similarity: #{doc.similarity_score})")
+      end)
+
+      # Find similar documents to a specific one
+      similar_docs = SemanticSearch.find_similar_documents(conn, 1, 3)
+      IO.puts("\nDocuments similar to first document:")
+      Enum.each(similar_docs, fn doc ->
+        IO.puts("  #{doc.title} (similarity: #{doc.similarity_score})")
+      end)
+
+      # Category-boosted search
+      boosted_results = SemanticSearch.search_by_category_with_semantic_boost(
+        conn, "programming", "Programming", 5
+      )
+      IO.puts("\nProgramming documents with category boost:")
+      Enum.each(boosted_results, fn doc ->
+        IO.puts("  #{doc.title} (boosted: #{doc.boosted_score}, raw: #{doc.raw_similarity})")
+      end)
+
+      # Get statistics
+      stats = SemanticSearch.get_embedding_statistics(conn)
+      IO.puts("\nEmbedding Statistics:")
+      IO.inspect(stats)
+
+    after
+      DuckdbEx.close(conn)
+    end
+  end
+end
+```
+
 ## ETL Operations
 
+ETL (Extract, Transform, Load) operations are critical for data integration and processing workflows. DuckDB's excellent CSV support, SQL capabilities, and extension system make it ideal for building efficient data pipelines that can handle large datasets with minimal memory usage.
+
 ### CSV Data Pipeline
+
+This example demonstrates a complete ETL pipeline that processes CSV files with data validation, transformation, and quality checking. It showcases DuckDB's fast CSV loading capabilities and SQL-based data cleaning techniques.
 
 ```elixir
 defmodule CSVPipeline do
   @moduledoc """
-  ETL pipeline for processing CSV files with DuckDB.
+  Complete ETL pipeline for processing CSV files with DuckDB.
+
+  This module demonstrates:
+  - Fast CSV loading using DuckDB's optimized COPY command
+  - Data validation and quality checks during transformation
+  - Type casting and data cleaning operations
+  - Computed column generation and business rule application
+  - Efficient CSV export with proper formatting
+
+  Ideal for data import/export operations, data cleaning workflows,
+  and integration between different systems via CSV interchange.
   """
 
   def process_csv_file(input_path, output_path) do
@@ -428,19 +792,25 @@ end
 
 ### Database Migration
 
+This example shows how to use DuckDB as an intermediate layer for migrating data between different database systems. DuckDB's extension system allows it to connect to multiple databases simultaneously, making it an excellent tool for ETL operations and database migrations. This pattern is useful for moving from legacy systems, consolidating databases, or changing database technologies.
+
+**Extension Management**: The example uses `DuckdbEx.Extension` module for proper extension installation and loading, providing better error handling and integration with the DuckdbEx ecosystem.
+
 ```elixir
 defmodule DatabaseMigration do
   @moduledoc """
   Migrate data between databases using DuckDB as an intermediate layer.
+  Demonstrates how to leverage DuckDB's extensions to connect to multiple
+  database systems and perform complex data transformations during migration.
   """
 
   def migrate_postgres_to_sqlite(postgres_config, sqlite_path) do
     {:ok, duckdb_conn} = DuckdbEx.open(":memory:")
 
     try do
-      # Load PostgreSQL extension
-      {:ok, _} = DuckdbEx.query(duckdb_conn, "INSTALL postgres_scanner")
-      {:ok, _} = DuckdbEx.query(duckdb_conn, "LOAD postgres_scanner")
+      # Install and load PostgreSQL extension using DuckdbEx.Extension
+      {:ok, _} = DuckdbEx.Extension.install(duckdb_conn, "postgres_scanner")
+      {:ok, _} = DuckdbEx.Extension.load(duckdb_conn, "postgres_scanner")
 
       # Connect to PostgreSQL
       attach_postgres(duckdb_conn, postgres_config)
@@ -522,9 +892,9 @@ defmodule DatabaseMigration do
   end
 
   defp export_to_sqlite(conn, sqlite_path) do
-    # Install SQLite extension
-    {:ok, _} = DuckdbEx.query(conn, "INSTALL sqlite_scanner")
-    {:ok, _} = DuckdbEx.query(conn, "LOAD sqlite_scanner")
+    # Install and load SQLite extension using DuckdbEx.Extension
+    {:ok, _} = DuckdbEx.Extension.install(conn, "sqlite_scanner")
+    {:ok, _} = DuckdbEx.Extension.load(conn, "sqlite_scanner")
 
     # Attach SQLite database
     {:ok, _} = DuckdbEx.query(conn, """
@@ -550,7 +920,11 @@ end
 
 ## Real-time Data Processing
 
+While DuckDB is primarily designed for analytical workloads, it can effectively handle real-time data processing scenarios through buffering, batch processing, and incremental aggregation patterns. This approach is ideal for analytics dashboards, monitoring systems, and applications that need to process high-volume event streams.
+
 ### Stream Processing
+
+This example demonstrates how to build a real-time event processing system using GenServer for state management and DuckDB for efficient data aggregation. The pattern includes event buffering, periodic aggregation, and automatic data cleanup - essential for building scalable analytics systems.
 
 ```elixir
 defmodule StreamProcessor do
@@ -744,7 +1118,11 @@ See the Sales Data Analysis and Time Series Analysis examples in the Data Analys
 
 ## Web Application Integration
 
+DuckDB's fast query performance and ability to handle analytical workloads make it excellent for powering real-time dashboards and analytics interfaces in web applications. This section shows how to integrate DuckDB with Phoenix LiveView to create responsive, data-driven user interfaces.
+
 ### Phoenix LiveView Dashboard
+
+This example demonstrates building a real-time analytics dashboard that updates automatically as new data arrives. It combines Phoenix LiveView's real-time capabilities with DuckDB's analytical power to create responsive dashboards for business intelligence, monitoring, and reporting applications.
 
 ```elixir
 defmodule MyAppWeb.AnalyticsLive do
@@ -962,7 +1340,11 @@ end
 
 ## Testing and Development
 
+Generating realistic test data is crucial for development, testing, and performance optimization. DuckDB's fast data loading capabilities and statistical functions make it ideal for creating comprehensive test datasets that mirror production data patterns without exposing sensitive information.
+
 ### Test Data Generation
+
+This example shows how to generate large volumes of realistic test data with proper statistical distributions, relationships, and time-based patterns. It's particularly useful for load testing, development environments, and creating demo datasets for analytics applications.
 
 ```elixir
 defmodule TestDataGenerator do
@@ -1131,4 +1513,46 @@ end
 
 ---
 
-These examples demonstrate real-world usage patterns for DuckdbEx across various domains. Each example can be adapted and extended based on your specific requirements and use cases.
+## Summary
+
+These examples demonstrate the versatility and power of DuckdbEx across various domains and use cases:
+
+- **Data Analysis**: Leverage DuckDB's analytical SQL capabilities for business intelligence and reporting
+- **Vector Search**: Build AI-powered applications with semantic search and similarity matching
+- **ETL Operations**: Create efficient data pipelines with validation, transformation, and quality checking
+- **Real-time Processing**: Handle streaming data with buffering and incremental aggregation patterns
+- **Web Integration**: Power responsive dashboards and analytics interfaces in Phoenix applications
+- **Database Migration**: Use DuckDB as an intermediary for complex database migrations and transformations
+- **Testing**: Generate realistic test datasets for development and performance testing
+
+Each example includes:
+
+- **Detailed explanations** of the techniques and patterns used
+- **Production-ready code** following Elixir best practices
+- **Performance considerations** and optimization techniques
+- **Error handling** and data validation strategies
+- **Extension integration** showcasing DuckDB's ecosystem
+
+### Key DuckDB Features Demonstrated
+
+- **Fast CSV Processing**: Optimized data loading and export capabilities
+- **Advanced SQL**: Window functions, CTEs, time-series operations, and statistical functions
+- **Extension System**: PostgreSQL scanner, SQLite integration, and VSS for vector operations using `DuckdbEx.Extension` module
+- **Appender API**: Efficient bulk data insertion for high-performance scenarios
+- **In-Memory Processing**: Fast analytical queries without persistence overhead
+- **ACID Transactions**: Data consistency and reliability for production systems
+
+### Adaptation Guidelines
+
+When adapting these examples for your use cases:
+
+1. **Replace mock data generation** with your actual data sources
+2. **Customize SQL queries** to match your specific business logic and requirements
+3. **Add appropriate error handling** for your production environment
+4. **Consider performance implications** for your expected data volumes
+5. **Implement proper security measures** for database connections and sensitive data
+6. **Add comprehensive logging** for monitoring and debugging
+7. **Write tests** to validate functionality and performance characteristics
+8. **Use DuckdbEx.Extension module** for extension management instead of raw SQL commands
+
+These patterns can be combined and extended to build sophisticated data processing applications that leverage DuckDB's unique capabilities for analytical workloads.
