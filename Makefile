@@ -23,7 +23,7 @@ ifneq ($(OS),Windows_NT)
 		LDFLAGS += -Wl,-rpath,$(realpath $(DUCKDB_LIB_PATH)) -Wl,-rpath,$$ORIGIN/
 		SO_EXT = .so
 		ifeq ($(shell uname -m),aarch64)
-			DUCKDB_PLATFORM = linux-aarch64
+			DUCKDB_PLATFORM = linux-arm64
 		else
 			DUCKDB_PLATFORM = linux-amd64
 		endif
@@ -54,9 +54,26 @@ force-build:
 # Download DuckDB if not available locally
 download-duckdb:
 	@echo "Downloading DuckDB $(DUCKDB_VERSION) for $(DUCKDB_PLATFORM)..."
+	@echo "Full URL: https://github.com/duckdb/duckdb/releases/download/$(DUCKDB_VERSION)/libduckdb-$(DUCKDB_PLATFORM).zip"
 	@mkdir -p duckdb_sources
 	@cd duckdb_sources && \
-		curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/$(DUCKDB_VERSION)/libduckdb-$(DUCKDB_PLATFORM).zip" && \
+		echo "Attempting download..." && \
+		curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/$(DUCKDB_VERSION)/libduckdb-$(DUCKDB_PLATFORM).zip" && \
+		echo "Downloaded file size:" && ls -la duckdb.zip && \
+		echo "File type:" && file duckdb.zip && \
+		echo "Validating zip file..." && \
+		if [ ! -s duckdb.zip ]; then \
+			echo "❌ Downloaded file is empty"; \
+			exit 1; \
+		fi && \
+		if ! file duckdb.zip | grep -q "Zip archive"; then \
+			echo "❌ Downloaded file is not a valid zip archive"; \
+			echo "File contents:"; \
+			head -c 200 duckdb.zip; \
+			echo ""; \
+			exit 1; \
+		fi && \
+		echo "✅ Zip file is valid, extracting..." && \
 		unzip -o duckdb.zip && \
 		rm duckdb.zip
 	@echo "DuckDB downloaded to duckdb_sources/"

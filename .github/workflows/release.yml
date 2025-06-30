@@ -61,34 +61,53 @@ jobs:
 
           # Download DuckDB release
           if [[ "${{ matrix.job.os }}" == "windows-latest" ]]; then
+            echo "Downloading DuckDB for Windows..."
             if [[ "${{ matrix.job.target }}" == *"msvc"* ]]; then
-              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-windows-amd64.zip"
+              curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-windows-amd64.zip"
             else
-              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-windows-amd64.zip"
+              curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-windows-amd64.zip"
             fi
-            unzip duckdb.zip
-            ls -la
           elif [[ "${{ matrix.job.os }}" == "macos-latest" ]]; then
+            echo "Downloading DuckDB for macOS..."
             if [[ "${{ matrix.job.target }}" == "aarch64-apple-darwin" ]]; then
-              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip"
+              curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip"
             else
-              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip"
+              curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip"
             fi
-            unzip duckdb.zip
-            ls -la
           else
             # Linux
+            echo "Downloading DuckDB for Linux target: ${{ matrix.job.target }}"
             if [[ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-aarch64.zip"
+              curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-arm64.zip"
             elif [[ "${{ matrix.job.target }}" == "arm-unknown-linux-gnueabihf" ]]; then
               # Use x86_64 and cross-compile
-              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip"
+              curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip"
             else
-              curl -L -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip"
+              curl -L -f --retry 3 --retry-delay 5 -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip"
             fi
-            unzip duckdb.zip
-            ls -la
           fi
+          
+          # Validate downloaded file
+          echo "Downloaded file info:"
+          ls -la duckdb.zip
+          file duckdb.zip
+          
+          if [[ ! -s duckdb.zip ]]; then
+            echo "❌ Downloaded file is empty"
+            exit 1
+          fi
+          
+          if ! file duckdb.zip | grep -q "Zip archive"; then
+            echo "❌ Downloaded file is not a valid zip archive"
+            echo "File contents:"
+            head -c 200 duckdb.zip
+            exit 1
+          fi
+          
+          echo "✅ Zip file is valid, extracting..."
+          unzip duckdb.zip
+          echo "Extracted files:"
+          ls -la
 
       - name: Setup Erlang and Elixir
         uses: erlef/setup-beam@v1
