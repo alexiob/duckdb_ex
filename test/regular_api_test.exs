@@ -195,7 +195,7 @@ defmodule RegularApiTest do
       assert christmas == ~D[2023-12-25]
 
       assert %Time{} = afternoon
-      assert afternoon == ~T[14:30:45]
+      assert afternoon == ~T[14:30:45.000000]
 
       assert %DateTime{} = christmas_afternoon
       assert christmas_afternoon == ~U[2023-12-25 14:30:45Z]
