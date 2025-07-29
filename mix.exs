@@ -83,7 +83,7 @@ defmodule DuckdbEx.MixProject do
   defp docs do
     [
       name: "DuckdbEx",
-      main: "overview",
+      main: "guides",
       source_url: "https://github.com/alexiob/duckdb_ex",
       homepage_url: "https://github.com/alexiob/duckdb_ex",
       extras: [
@@ -100,7 +100,7 @@ defmodule DuckdbEx.MixProject do
         "docs/data_types.md",
         "docs/performance.md",
         "docs/examples.md",
-        "docs/README.md": [title: "Documentation Index"]
+        "docs/guides.md": [title: "Documentation Index"]
       ],
       groups_for_extras: [
         "Getting Started": [

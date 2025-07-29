@@ -132,6 +132,14 @@ defmodule DuckdbEx.Extension do
   end
 
   @doc """
+  Installs an extension.
+
+  Alias for `install_extension/2` for documentation compatibility.
+  """
+  @spec install(Connection.t(), extension_name()) :: :ok | {:error, String.t()}
+  def install(connection, extension_name), do: install_extension(connection, extension_name)
+
+  @doc """
   Loads an installed extension.
 
   Loads a previously installed extension into the current session.
@@ -156,6 +164,14 @@ defmodule DuckdbEx.Extension do
         {:error, reason}
     end
   end
+
+  @doc """
+  Loads an extension.
+
+  Alias for `load_extension/2` for documentation compatibility.
+  """
+  @spec load(Connection.t(), extension_name()) :: :ok | {:error, String.t()}
+  def load(connection, extension_name), do: load_extension(connection, extension_name)
 
   @doc """
   Loads an extension from a local file path.
@@ -340,4 +356,12 @@ defmodule DuckdbEx.Extension do
         {:error, reason}
     end
   end
+
+  @doc """
+  Lists all available extensions.
+
+  Alias for `list_extensions/1` for documentation compatibility.
+  """
+  @spec list(Connection.t()) :: {:ok, [extension_info()]} | {:error, String.t()}
+  def list(connection), do: list_extensions(connection)
 end
